@@ -60,7 +60,7 @@
   .cs-brand { display:flex; align-items:center; gap:8px; font-size:13px; letter-spacing:.14em; color:var(--ink-2); }
   .cs-brand svg { flex:none; }
   .cs-brand .cs-tag { margin-left:auto; letter-spacing:.06em; color:var(--ink-3); font-size:12px; }
-  .cs h1 { font-family:var(--serif); font-size:31px; line-height:1.42; font-weight:700; color:var(--ink); margin-top:9dvh; letter-spacing:.01em; }
+  .cs h1 { font-family:var(--serif); font-size:31px; line-height:1.42; font-weight:700; color:var(--ink); margin-top:5.5dvh; letter-spacing:.01em; }
   .cs-sub { font-size:14px; line-height:1.9; color:var(--ink-2); margin-top:14px; }
   .gates { list-style:none; margin-top:22px; border-top:1px solid var(--line); }
   .gates li { display:flex; gap:14px; padding:13px 2px; border-bottom:1px solid var(--line); font-size:13.5px; line-height:1.7; color:var(--ink-2); }
@@ -220,6 +220,15 @@
   .scope { margin:16px 0 0; padding:12px 14px; background:#FFF; border:1px solid var(--line); border-radius:10px; font-size:11.5px; line-height:1.85; color:var(--ink-3); }
   .scope b { color:var(--ink-2); font-weight:600; }
   .engine-note .warn { color:#D8404A; }
+  .strain-pick { display:flex; align-items:center; gap:8px; margin:2px 0 0; }
+  .sp-label { font-size:11.5px; color:var(--ink-3); letter-spacing:.04em; }
+  .sp { flex:1; background:#FFF; border:1px solid var(--line); color:var(--ink-2); font-size:12.5px; padding:8px 6px; border-radius:8px; cursor:pointer; }
+  .sp.on { border-color:var(--hm); color:var(--hm); background:#F4F7FF; font-weight:600; }
+  .sp-note { font-size:11px; color:var(--ink-3); margin:6px 0 10px; line-height:1.6; }
+  .lk { padding:11px 11px 12px; }
+  .lk-t { font-size:13px; color:#191919; font-weight:600; }
+  .lk-u { font-size:11px; color:#576B95; margin-top:4px; word-break:break-all; }
+  .lk-d { font-size:11px; color:#96979B; margin-top:8px; padding-top:7px; border-top:1px solid #F0F0F0; }
   .replay-entry { display:block; width:100%; margin:8px 0 0; background:none; border:1px dashed #C9CFE0; color:var(--ink-2); font-size:12px; padding:9px; border-radius:8px; cursor:pointer; }
   .replay-entry[hidden] { display:none; }
   .mini-link { background:none; border:none; color:#4A6CF7; font-size:11px; cursor:pointer; padding:0 0 0 6px; }
@@ -240,13 +249,18 @@
         <span>话苗 HUAMIAO</span><span class="cs-tag">演练须知</span>
       </div>
       <h1>先被骗一次，<br>才不被骗第二次。</h1>
-      <p class="cs-sub">一次 3–5 分钟的微信对话演练。对方是一名按剧本行事的 AI「骗手」，台词改编自公开通报的真实案例（已脱敏）；你的每一句回应都会被静默记录。</p>
+      <p class="cs-sub">3–5 分钟的微信对话演练。对方是按剧本行事的 AI「骗手」，台词改编自公开通报案例；你的每句回应都会被静默记录。</p>
       <ol class="gates">
-        <li><span class="g-n">01</span><div><b>对方是 AI，内容虚构。</b>到账截图、收款码与转账金额均为样机模拟（图内标注），不发生真实资金流动。</div></li>
+        <li><span class="g-n">01</span><div><b>对方是 AI，内容虚构。</b>到账截图、收款码与转账金额均为样机模拟，不发生真实资金流动。</div></li>
         <li><span class="g-n">02</span><div><b>全程可随时退出。</b>点左上角「‹」或右上角「···」即可结束并查看结算。</div></li>
         <li><span class="g-n">03</span><div><b>演练中不作任何提示。</b>风险信号被静默记录，结束后一次性揭晓「防骗免疫力报告」。</div></li>
         <li><span class="g-n">04</span><div><b>日志去标识。</b>不采集姓名、学号，数据仅用于反诈教育研究。</div></li>
       </ol>
+      <div class="strain-pick">
+        <span class="sp-label">演练菌株</span>
+        <button class="sp on" data-s="SD-001">刷单返利</button>
+        <button class="sp" data-s="SD-002">冒充客服理赔</button>
+      </div>
       <div class="engine-line">
         <span class="dot" id="engineDot"></span><span id="engineText">智能引擎：本机剧本引擎（可接入大模型增强）</span>
         <button id="llmCfgBtn">接入</button>

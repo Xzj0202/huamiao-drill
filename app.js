@@ -5,7 +5,8 @@
  * 伦理：暗记全程静默；结算报告一次性揭晓。 */
 const $ = id => document.getElementById(id);
 const chat = $('chat'), input = $('userInput'), sendBtn = $('sendBtn');
-const PEER = SCRIPT.meta.contact_name.split('｜')[0];   // 顶栏只显示备注名（真实微信）
+let PEER = SCRIPT.meta.contact_name.split('｜')[0];      // 顶栏只显示备注名（真实微信）
+function syncPeerName(){ PEER = SCRIPT.meta.contact_name.split('｜')[0]; if ($('contactName') && !state.done) $('contactName').textContent = PEER; }
 const state = { round: 0, inRound: 0, score: 100, seenRound: null, rows: [], dedByElem: {}, used: {},
   history: [], lastPeerText: '', lastUserAt: 0, lastTimeAt: 0, t0: 0,
   engineCount: { llm: 0, local: 0, fail: 0 }, llmErr: '', lastTest: null,
@@ -27,8 +28,8 @@ const HARD = {
   E4: t => /共享屏幕|屏幕共享|远程协助|远程控制/.test(t)
 };
 const SOFT = {
-  E7: t => /(进群|加群|下载|装一?个|换)[^。？！]{0,6}(吧|好|了|可以|嗯|哦)|(好|行|嗯|ok|可以|走)[^。？！]{0,6}(进群|加群|下载)|群号多少|好呀|好啊|可以啊/.test(t),
-  E3: t => /(接了|做完|试一单|来一单|接单|做一单|领取)/.test(t),
+  E7: t => /(进群|加群|下载|装一?个|共享|扫码|群号|链接发|开个视|远程)/.test(t),   // 行为型暗记：只要对方把你往别的渠道带、你接了这个动作就记，光说“好啊”不算
+  E3: t => /(接了|做完|试一单|来一单|接单|做一单|领取|先退|退我)/.test(t),
   E1: t => /马上(转|付|做|去)|快点|赶紧|现在就|立刻/.test(t),
   E2: t => /你们公司|你是谁|工号|授权/.test(t)
 };
@@ -44,6 +45,12 @@ function watchSilent(t){
   // 硬指标全局生效：验证码/转账/屏幕共享任何时候交出都算失守（反诈教育本义）
   [['E5',4],['E6',5],['E4',4]].forEach(([el,sev]) => {
     if (!entries.some(w => w.element === el)) entries.push({ element: el, severity: sev, hard: true });
+  });
+  /* 行为型软暗记同样全局生效：旧版只在所属轮判定，第 1 轮就答应进群/接小单的人一分不扣，
+   * 报告里显示"本轮未触发"，与事实不符。E2 权威冒充仍按轮判定——追问对方身份本身是好行为，
+   * 只有"追问后仍继续信任动作"才算失守，所以不进全局表。 */
+  [['E7',2],['E3',2],['E1',2]].forEach(([el,sev]) => {
+    if (!entries.some(w => w.element === el)) entries.push({ element: el, severity: sev });
   });
   entries.forEach(w => {
     const m = (w.hard ? HARD : SOFT)[w.element];
@@ -132,6 +139,16 @@ function poster(kind, ctx) {
     + '<div class="pc-m"><b>岗位</b><i>兼职对接专员</i></div>'
     + '<div class="pc-m"><b>工号</b><i>A-2071（自称，未经核验）</i></div>'
     + '<div class="pc-f">截图 · 样机模拟，正规企业不会用这个索财</div>');
+  if (kind === 'order') return wxCard(
+    '<div class="pc-h"><span class="pc-g">云达售后 · 理赔受理单</span></div>'
+    + '<div class="pc-m"><b>受理编号</b><i>L2071-8842（自称系统生成）</i></div>'
+    + '<div class="pc-m"><b>理赔金额</b><i>¥256.00 ＋ 延误补偿 ¥20.00</i></div>'
+    + '<div class="pc-f">截图 · 样机模拟单据，正规平台不会以此向你索财</div>');
+  if (kind === 'link') return wxCard(
+    '<div class="lk"><div class="lk-t">云达售后中心 · 理赔申请</div>'
+    + '<div class="lk-u">https://yunda-service.cn/claim/L2071-8842</div>'
+    + '<div class="lk-d">轻触打开外部网页</div></div>'
+    + '<div class="pc-f">示例链接 · 域名与页面均为样机虚构，不可访问、不发起任何请求</div>');
   if (kind === 'qr') return wxCard(
     '<div class="qrbox"><svg viewBox="0 0 40 40" width="112" height="112" aria-hidden="true">'
     + '<rect width="40" height="40" fill="#fff"/>'
@@ -151,7 +168,7 @@ function peerImageEl(kind, ctx) {
   const r = el('div', 'row'); r.innerHTML = AVA_PEER;
   const b = el('div', 'bubble img-bubble'); b.innerHTML = poster(kind, ctx);
   r.appendChild(b); chat.appendChild(r);
-  const cap = { receipt: '发来一张微信转账到账截图', group: '发来一张任务群聊天截图', badge: '发来一张自称的公司工牌', qr: '发来一张商家收款码图片' };
+  const cap = { receipt: '发来一张微信转账到账截图', group: '发来一张任务群聊天截图', badge: '发来一张自称的公司工牌', qr: '发来一张商家收款码图片', order: '发来一张理赔受理单截图', link: '发来一个自称官方售后的网页链接' };
   state.history.push({ role: 'assistant', content: '[' + (cap[kind] || '发来一张图片') + ']' });
   state.transcript.push({ s: 'peer', img: kind });
   if (state.history.length > 24) state.history.splice(0, state.history.length - 24);
@@ -416,7 +433,7 @@ function settle(reason){
     + '<br>推进 · 暗记 · 打分 · 结论 = 本地确定性代码 ｜ 全程对话去标识，仅用于反诈教育研究</p>'
     + '<div class="scope">关于这个样机 · <b>'+SCRIPT.meta.script_id+'</b><br>'
     + '本页验证的是<b>机制</b>：沉浸式暴露演练 + 静默行为暗记 + 可解释评分，不是最终产品的完成度。'
-    + '当前内置 1 个菌株（'+SCRIPT.meta.strain+'·5 轮 '+SCRIPT.rounds.reduce((s,r)=>s+Object.values(r.lines).reduce((a,b)=>a+b.length,0),0)+' 条台词），接地语料 33 条（=附件1）；'
+    + '当前内置 '+Object.keys(SCRIPT_LIB).length+' 个菌株（本局：'+SCRIPT.meta.strain+'·5 轮 '+SCRIPT.rounds.reduce((a,r)=>a+Object.values(r.lines).reduce((x,y)=>x+y.length,0),0)+' 条台词；库内合计 '+Object.keys(SCRIPT_LIB).reduce((a,k)=>a+SCRIPT_LIB[k].rounds.reduce((b,r)=>b+Object.values(r.lines).reduce((x,y)=>x+y.length,0),0),0)+' 条），接地语料 '+CORPUS.length+' 条（=附件1）；'
     + '扣分为样机固定演示权重。剧本库 v1（≥40 条·6 大类）、判决书频率加权权重表、对照实验与群体热力图见申报表技术路线与里程碑。</div>';
   $('againBtn').onclick = ()=>location.reload();
   $('exportBtn').onclick = exportReplay;
@@ -435,14 +452,16 @@ function refreshEngineLine(){
   const on = !!LLM.key;
   const t = state.lastTest;
   $('engineDot').className = 'dot' + (on && t && t.ok ? ' on' : '');
+  $('llmCfgBtn').title = on ? ('接口 ' + LLM.base + ' · 模型 ' + (LLM.model||'未填')) : '接入大模型';
   $('engineText').textContent = on
-    ? (t && t.ok ? '生成引擎：大模型已连通 · ' + (LLM.model||'custom')
-       : t ? '生成引擎：Key 已填但未连通（原因见接入面板）' : '生成引擎：Key 已填待检测 · 未连通时自动改用本机引擎')
+    ? (t && t.ok ? '生成引擎：大模型已连通 ✓（剧本约束）'
+       : t ? '生成引擎：Key 未连通 · 用本机引擎' : '生成引擎：Key 已填 · 待检测')
     : '生成引擎：本机规则引擎（剧本约束）';
 }
 $('startBtn').onclick = ()=>{
   $('consent').classList.remove('on'); $('chatView').classList.add('on');
   $('contactName').textContent = PEER;
+  chat.innerHTML = '';   // 防重复开局时上一局气泡残留
   state.t0 = Date.now();
   timeDiv();
   enqueue(async ()=>{
@@ -471,6 +490,13 @@ $('llmSave').onclick = async ()=>{
   if (LLM.key) await testConnection(); else $('llmSheet').classList.remove('on');
 };
 $('llmTest').onclick = testConnection;
+document.querySelectorAll('.sp').forEach(b => b.addEventListener('click', () => {
+  if (state.rows.length || state.done) { toast('本局已开始，先返回须知页再换菌株'); return; }
+  if (!useScript(b.dataset.s)) return;
+  document.querySelectorAll('.sp').forEach(x => x.classList.toggle('on', x === b));
+  syncPeerName();
+  document.title = '微信对话 · 话苗演练 · ' + SCRIPT.meta.strain;
+}));
 $('llmKey').addEventListener('input', keyHint);
 /* 拉取该 Key 实际可用的模型名，填进下拉候选，避免手打错 */
 $('llmModels').onclick = async ()=>{
@@ -596,3 +622,5 @@ if (typeof REPLAY_DATA !== 'undefined' && REPLAY_DATA && REPLAY_DATA.transcript 
   $('replayBtn').hidden = false;
   $('replayBtn').onclick = playReplay;
 }
+
+syncPeerName();
