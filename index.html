@@ -202,6 +202,31 @@
   #againBtn { background:var(--hm); color:#FFF; }
   #quitAll { background:#FFF; color:var(--ink-2); border:1px solid var(--line) !important; }
   .engine-note { font-size:11.5px; color:var(--ink-3); text-align:center; margin-top:14px; line-height:1.8; }
+
+  /* 拟真图片消息：样机用内联 SVG 卡片，不加载外部素材（离线可用、可复现） */
+  .bubble.img-bubble { padding:0; background:#FFF; overflow:hidden; max-width:70%; }
+  .imgcard { width:198px; font-size:12px; color:#191919; }
+  .imgcard .pc-h { display:flex; align-items:center; gap:6px; padding:9px 10px 7px; border-bottom:1px solid #F0F0F0; font-weight:600; font-size:12px; }
+  .imgcard .pc-sub { color:#8A90A3; font-weight:400; font-size:11px; }
+  .imgcard .pc-amt { font-size:22px; font-weight:700; padding:12px 10px 2px; letter-spacing:.5px; }
+  .imgcard .pc-l { padding:2px 10px 10px; color:#4A5063; font-size:11.5px; }
+  .imgcard .pc-m { padding:7px 10px; border-top:1px solid #F5F5F5; display:flex; flex-direction:column; gap:2px; }
+  .imgcard .pc-m b { color:#576B95; font-weight:600; font-size:11px; }
+  .imgcard .pc-m i { font-style:normal; color:#191919; }
+  .imgcard .pc-g { font-weight:600; }
+  .imgcard .pc-f { background:#FAFAFA; color:#96979B; font-size:10px; padding:6px 10px; line-height:1.5; border-top:1px solid #F0F0F0; }
+  .imgcard .qrbox { padding:12px 10px 6px; text-align:center; }
+  /* 样机定位声明 + 引擎自检 */
+  .scope { margin:16px 0 0; padding:12px 14px; background:#FFF; border:1px solid var(--line); border-radius:10px; font-size:11.5px; line-height:1.85; color:var(--ink-3); }
+  .scope b { color:var(--ink-2); font-weight:600; }
+  .engine-note .warn { color:#D8404A; }
+  .replay-entry { display:block; width:100%; margin:8px 0 0; background:none; border:1px dashed #C9CFE0; color:var(--ink-2); font-size:12px; padding:9px; border-radius:8px; cursor:pointer; }
+  .replay-entry[hidden] { display:none; }
+  .mini-link { background:none; border:none; color:#4A6CF7; font-size:11px; cursor:pointer; padding:0 0 0 6px; }
+  .mini-hint { font-size:11px; color:var(--ink-3); margin:4px 0 0; line-height:1.6; min-height:0; }
+  .ghost-btn { display:block; width:100%; margin-top:10px; background:#FFF; border:1px solid var(--line); color:var(--ink-3); font-size:12px; padding:10px; border-radius:8px; cursor:pointer; }
+  .test-result { font-size:12px; margin-top:8px; line-height:1.6; min-height:18px; color:#8A90A3; }
+  .test-result.ok { color:#1D9E74; } .test-result.bad { color:#D8404A; }
 </style>
 </head>
 <body>
@@ -217,7 +242,7 @@
       <h1>先被骗一次，<br>才不被骗第二次。</h1>
       <p class="cs-sub">一次 3–5 分钟的微信对话演练。对方是一名按剧本行事的 AI「骗手」，台词改编自公开通报的真实案例（已脱敏）；你的每一句回应都会被静默记录。</p>
       <ol class="gates">
-        <li><span class="g-n">01</span><div><b>对方是 AI，内容虚构。</b>收款码、转账金额均为模拟，不发生任何真实资金流动。</div></li>
+        <li><span class="g-n">01</span><div><b>对方是 AI，内容虚构。</b>到账截图、收款码与转账金额均为样机模拟（图内标注），不发生真实资金流动。</div></li>
         <li><span class="g-n">02</span><div><b>全程可随时退出。</b>点左上角「‹」或右上角「···」即可结束并查看结算。</div></li>
         <li><span class="g-n">03</span><div><b>演练中不作任何提示。</b>风险信号被静默记录，结束后一次性揭晓「防骗免疫力报告」。</div></li>
         <li><span class="g-n">04</span><div><b>日志去标识。</b>不采集姓名、学号，数据仅用于反诈教育研究。</div></li>
@@ -226,8 +251,9 @@
         <span class="dot" id="engineDot"></span><span id="engineText">智能引擎：本机剧本引擎（可接入大模型增强）</span>
         <button id="llmCfgBtn">接入</button>
       </div>
+      <button id="replayBtn" class="replay-entry" hidden>▶ 看一段真实对局回放（录制样本 · 约 90 秒）</button>
       <button id="startBtn">我已知情，进入演练</button>
-      <p class="fine">结束后强制附反诈要点 ｜ 本工具为教育性演练与测评，不构成真实受骗风险预测<br>广东财经大学「话苗」项目组 · 演示版</p>
+      <p class="fine">结束后强制附反诈要点 ｜ 教育性演练与测评，不构成受骗风险预测<br>广东财经大学「话苗」项目组 · 机制样机（非最终产品完成度）</p>
     </div>
   </div>
 
@@ -244,7 +270,7 @@
     </header>
     <div id="chat"></div>
     <div class="wx-input">
-      <button class="icon-btn" aria-label="语音（演示版不可用）">
+      <button class="icon-btn" aria-label="语音（样机未内置）">
         <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"/></svg>
       </button>
       <div class="field"><input id="userInput" type="text" placeholder="" autocomplete="off" enterkeyhint="send"></div>
@@ -283,17 +309,22 @@
   <div id="llmSheet">
     <div class="sheet-body">
       <h2 style="font-size:16px;margin-bottom:4px">接入大模型（可选）</h2>
-      <p class="hint">填入 OpenAI 兼容接口（DeepSeek / 智谱 GLM / 通义 Qwen 任一）后，"对方"的台词由大模型按剧本即兴生成，本地检索公开通报话术作语气接地。Key 仅保存在本机浏览器，不会上传。不接入则使用本机剧本引擎，功能完整。</p>
+      <p class="hint">填入 OpenAI 兼容接口（DeepSeek / 智谱 GLM / 通义 Qwen 任一）后，"对方"的台词由大模型按剧本即兴生成，本地检索公开通报话术作语气接地。Key 只存在你当前浏览器（localStorage），不上传、<b>不写入代码库</b>——样机刻意不在前端内置模型密钥，这是申报书安全设计的一条。不接入时自动使用本机规则引擎，演练流程与打分完全一致；保存后请点「检测连接」确认是否真的生效，结算页会如实区分两种来源。</p>
       <label>接口地址 Base URL</label>
       <input id="llmBase" placeholder="https://api.deepseek.com">
-      <label>模型名</label>
-      <input id="llmModel" placeholder="deepseek-chat">
+      <label>模型名 <button type="button" id="llmModels" class="mini-link">拉取可用模型</button></label>
+      <input id="llmModel" list="modelOptions" placeholder="留空则自动查接口选用">
+      <datalist id="modelOptions"></datalist>
+      <p class="mini-hint" id="llmModelsHint"></p>
       <label>API Key</label>
       <input id="llmKey" type="password" placeholder="sk-…">
+      <p class="mini-hint" id="llmKeyHint"></p>
       <div class="sheet-row">
-        <button id="llmClear">清除并使用本机引擎</button>
+        <button id="llmClear">清除并改用本机引擎</button>
+        <button id="llmTest">检测连接</button>
         <button id="llmSave">保存并启用</button>
       </div>
+      <p class="test-result" id="llmTestResult"></p>
     </div>
   </div>
 
@@ -327,12 +358,13 @@
         <div class="t-note"><input id="tNote" type="text" placeholder="添加转账说明"></div>
         <button class="t-go" id="tGo" disabled>转账</button>
       </div>
-      <p class="t-fine">本页面为反诈演练模拟界面，不发生任何真实资金流动<br>广东财经大学「话苗」项目组 · 演示版</p>
+      <p class="t-fine">本页面为反诈演练模拟界面，不发生任何真实资金流动<br>广东财经大学「话苗」项目组 · 样机模拟</p>
     </div>
   </div>
 </div>
 <script src="data.js"></script>
 <script src="corpus.js"></script>
+<script src="replay.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

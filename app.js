@@ -8,7 +8,8 @@ const chat = $('chat'), input = $('userInput'), sendBtn = $('sendBtn');
 const PEER = SCRIPT.meta.contact_name.split('｜')[0];   // 顶栏只显示备注名（真实微信）
 const state = { round: 0, inRound: 0, score: 100, seenRound: null, rows: [], dedByElem: {}, used: {},
   history: [], lastPeerText: '', lastUserAt: 0, lastTimeAt: 0, t0: 0,
-  engineCount: { llm: 0, local: 0, fallback: 0 }, done: false };
+  engineCount: { llm: 0, local: 0, fail: 0 }, llmErr: '', lastTest: null,
+  transcript: [], replayed: null, lastReason: '', done: false };
 const LLM = JSON.parse(localStorage.getItem('hm_llm') || 'null') || { base:'', model:'', key:'' };
 
 /* ---------- 意图分类（确定性） ---------- */
@@ -70,7 +71,12 @@ function row(side, text){
   r.innerHTML = (side==='me'?AVA_ME:AVA_PEER);
   const b = el('div','bubble'); b.textContent = text;
   r.appendChild(b); chat.appendChild(r);
+  /* 对话史必须完整：旧版只记用户句与大模型回复，对方的开场白/"在吗？"/罐头台词都没进
+   * history，导致接了大模型也看不到自己刚说过什么 → 前后矛盾、重复自我介绍。 */
+  state.history.push({ role: side==='peer' ? 'assistant' : 'user', content: text });
+  if (state.history.length > 24) state.history.splice(0, state.history.length - 24);
   if (side==='peer') { state.lastPeerText = text; }
+  state.transcript.push({ s: side==='peer' ? 'peer' : 'me', t: text });
   scroll(); return b;
 }
 function scroll(){ chat.scrollTop = chat.scrollHeight; }
@@ -107,11 +113,67 @@ async function peerBubble(text){
   await wait(d);
   hideTyping(); maybeTimeDiv(); row('peer', text);
 }
+/* ---------- 拟真图片消息：真实骗手发的是截图，不是台词里写一句"（截图）" ---------- */
+const wxCard = inner => '<div class="imgcard">' + inner + '</div>';
+function poster(kind, ctx) {
+  const amtM = (ctx || '').match(/(\d{2,4})\s*(?:元|块)?/);
+  const amt = amtM ? amtM[1] : '20';
+  if (kind === 'receipt') return wxCard(
+    '<div class="pc-h"><svg width="18" height="18" viewBox="0 0 20 20"><circle cx="10" cy="10" r="10" fill="#07C160"/><path d="M6 10.2l2.6 2.6L14 7.4" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>微信<span class="pc-sub">服务通知</span></div>'
+    + '<div class="pc-amt">¥' + amt + '.00</div><div class="pc-l">转账已到零钱 · 即时到账</div>'
+    + '<div class="pc-f">截图 · 样机模拟，非真实到账</div>');
+  if (kind === 'group') return wxCard(
+    '<div class="pc-h"><span class="pc-g">星速任务群(326)</span></div>'
+    + '<div class="pc-m"><b>阿俊·计科2班</b><i>刚做完联单到账180 真的假的这么顺</i></div>'
+    + '<div class="pc-m"><b>小鹿·外语2班</b><i>群主说今天只剩2个名额了</i></div>'
+    + '<div class="pc-f">截图 · 样机模拟对话，非真实群聊</div>');
+  if (kind === 'badge') return wxCard(
+    '<div class="pc-h"><span class="pc-g">工牌 · 星速传媒</span></div>'
+    + '<div class="pc-m"><b>岗位</b><i>兼职对接专员</i></div>'
+    + '<div class="pc-m"><b>工号</b><i>A-2071（自称，未经核验）</i></div>'
+    + '<div class="pc-f">截图 · 样机模拟，正规企业不会用这个索财</div>');
+  if (kind === 'qr') return wxCard(
+    '<div class="qrbox"><svg viewBox="0 0 40 40" width="112" height="112" aria-hidden="true">'
+    + '<rect width="40" height="40" fill="#fff"/>'
+    + Array.from({length: 13}, (_,y) => Array.from({length:13},(_,x)=>{
+        const on = ((x*7+y*11+((x*y)%5)) % 3) === 0;
+        return on ? '<rect x="'+(2+x*2.8)+'" y="'+(2+y*2.8)+'" width="2.6" height="2.6" fill="#1A1D26"/>' : '';
+      }).join('')).join('')
+    + '<rect x="1" y="1" width="8" height="8" fill="none" stroke="#1A1D26" stroke-width="2"/>'
+    + '<rect x="31" y="1" width="8" height="8" fill="none" stroke="#1A1D26" stroke-width="2"/>'
+    + '<rect x="1" y="31" width="8" height="8" fill="none" stroke="#1A1D26" stroke-width="2"/>'
+    + '</svg></div>'
+    + '<div class="pc-l">星速传媒商贸有限公司（自称对公码）</div>'
+    + '<div class="pc-f">示例码 · 图案由脚本生成，不含任何真实收款信息，不可扫描支付</div>');
+  return wxCard('<div class="pc-l">图片消息</div>');
+}
+function peerImageEl(kind, ctx) {
+  const r = el('div', 'row'); r.innerHTML = AVA_PEER;
+  const b = el('div', 'bubble img-bubble'); b.innerHTML = poster(kind, ctx);
+  r.appendChild(b); chat.appendChild(r);
+  const cap = { receipt: '发来一张微信转账到账截图', group: '发来一张任务群聊天截图', badge: '发来一张自称的公司工牌', qr: '发来一张商家收款码图片' };
+  state.history.push({ role: 'assistant', content: '[' + (cap[kind] || '发来一张图片') + ']' });
+  state.transcript.push({ s: 'peer', img: kind });
+  if (state.history.length > 24) state.history.splice(0, state.history.length - 24);
+  scroll();
+}
+async function peerImage(kind, ctx) {
+  showTyping();
+  await wait(Math.min(450 + 900, 2400));          // 发图比发字慢一拍，更像真人
+  hideTyping(); maybeTimeDiv(); peerImageEl(kind, ctx);
+}
+/* 台词里的文本占位（截图）（图）已统一替换为【图:kind】标记，渲染时拆成图片消息 */
 async function peerStream(text){
-  const parts = splitBubbles(text);
-  for (let i = 0; i < parts.length; i++) {
-    if (i) await wait(320 + Math.random()*380);
-    await peerBubble(parts[i]);
+  const tokens = String(text).split(/(【图:[a-z]+】)/).filter(s => s.trim());
+  let first = true;
+  for (const tk of tokens) {
+    const m = tk.match(/^【图:([a-z]+)】$/);
+    const segs = m ? [tk] : splitBubbles(tk);
+    for (const s of segs) {
+      if (!first) await wait(320 + Math.random() * 380);
+      if (m) await peerImage(m[1], text); else await peerBubble(s);
+      first = false;
+    }
   }
 }
 
@@ -126,11 +188,113 @@ function pick(bucket){
   return arr[i];
 }
 
-/* ---------- LLM 层（可选，只管措辞；8 秒超时自动降级本机引擎，绝不空等） ---------- */
+/* ---------- LLM 层（可选，只管措辞；8 秒超时自动降级本机引擎，绝不空等） ----------
+ * 失败必须可见：接口报错（401/404/402/429）不抛异常，旧代码会把"key 无效/模型名没填"
+ * 静默变成本机引擎台词，看起来像"接了大模型但很笨"。现在分类记录，如实计入页脚。 */
+async function llmCall(messages, timeoutMs = 8000) {
+  if (!LLM.key) return { err: '未配置 API Key' };
+  if (!LLM.base) return { err: '未配置接口地址（Base URL）' };
+  let res;
+  try {
+    const ac = new AbortController(); const tid = setTimeout(() => ac.abort(), timeoutMs);
+    res = await fetch(LLM.base.replace(/\/+$/, '') + '/chat/completions', {
+      method: 'POST', signal: ac.signal,
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + LLM.key },
+      body: JSON.stringify({ model: LLM.model, temperature: 0.95, max_tokens: 130, messages })
+    });
+    clearTimeout(tid);
+  } catch (e) {
+    return { err: e && e.name === 'AbortError' ? `接口 ${timeoutMs/1000} 秒未响应（已超时降级）` : '无法连接接口（网络或跨域被拦截）' };
+  }
+  if (!res.ok) {
+    let detail = '';
+    try { const b = await res.json(); detail = (b.error && b.error.message) || b.message || JSON.stringify(b); }
+    catch (_) { try { detail = (await res.text()).slice(0, 120); } catch (e2) {} }
+    const hint = res.status === 401 ? 'Key 无效、已注销或额度用尽'
+      : res.status === 402 ? '账户余额不足'
+      : res.status === 403 ? '该 Key 无权访问此模型'
+      : res.status === 404 ? '接口地址或模型名不存在（检查 Base URL 与模型名拼写）'
+      : res.status === 429 ? '请求频率或额度受限' : 'HTTP ' + res.status;
+    return { err: hint + (detail ? ' · ' + String(detail).replace(/\s+/g,' ').slice(0, 240) : '') };
+  }
+  const j = await res.json().catch(() => null);
+  if (!j) return { err: '接口返回非 JSON（被代理或网关改写）' };
+  const text = ((j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '').trim();
+  return text ? { text } : { err: '接口返回空内容（模型名可能不支持对话）' };
+}
+
+/* 粘贴掉一位就会报"Key 无效"，而且看不出是自己粘贴错了：实时显示长度与首尾 */
+function keyHint() {
+  const k = $('llmKey'), box = $('llmKeyHint');
+  if (!k || !box) return;
+  const v = k.value.trim();
+  if (!v) { box.textContent = ''; return; }
+  const sp = /\s/.test(k.value) ? ' · 含空格或换行（已忽略）' : '';
+  const isSk = v.indexOf('sk-') === 0;
+  const warn = !isSk ? ' · 不是 sk- 开头，请确认复制完整' : (v.length !== 35 ? ' —— DeepSeek 的 Key 通常为 35 位，请回平台重新完整复制' : '');
+  box.textContent = '当前填入：' + v.slice(0, 4) + '…' + v.slice(-4) + '（长度 ' + v.length + ' 位）' + sp + warn;
+}
+
+/* 表单 → 内存：以前「检测连接」只读已保存的配置，用户填完直接点检测会拿旧值去请求，
+ * 报出来的 400 与框里的模型名对不上，完全无法自查。 */
+function syncLlmFromForm(persist) {
+  const b = $('llmBase'), m = $('llmModel'), k = $('llmKey');
+  if (!b || !m || !k) return;
+  LLM.base = b.value.trim(); LLM.model = m.value.trim(); LLM.key = k.value.trim();
+  if (LLM.key && !LLM.base) LLM.base = 'https://api.deepseek.com';
+  if (persist) localStorage.setItem('hm_llm', JSON.stringify(LLM));
+}
+
+/* 模型名以接口为准，不写死：写死的默认名会随厂商改名而失效 */
+async function fetchModels() {
+  if (!LLM.base || !LLM.key) return null;
+  try {
+    const ac = new AbortController(); const t = setTimeout(() => ac.abort(), 8000);
+    const res = await fetch(LLM.base.replace(/\/+$/, '') + '/models', { headers: { Authorization: 'Bearer ' + LLM.key }, signal: ac.signal });
+    clearTimeout(t); if (!res.ok) return null;
+    const j = await res.json();
+    return (j.data || j.models || []).map(x => x.id || x.name || x.model).filter(Boolean);
+  } catch (e) { return null; }
+}
+
+/* 配置面板里的「检测连接」：让接入与否在开练之前就确认，而不是靠感觉猜 */
+async function testConnection() {
+  syncLlmFromForm(false); keyHint();             // 以表单当前值为准，不必先点保存
+  const out = $('llmTestResult'); if (out) { out.textContent = '正在请求接口…'; out.className = 'test-result'; }
+  let note = '';
+  const ping = [{ role: 'user', content: '只回复两个字：正常' }];
+  if (LLM.key && !LLM.model) {                  // 模型名留空 → 问接口要，不猜
+    const list = await fetchModels();
+    if (list && list.length) {
+      LLM.model = list.find(id => /flash|lite|turbo|free/i.test(id)) || list[0];
+      if ($('llmModel')) $('llmModel').value = LLM.model;
+      note = '（模型名留空，已按接口列表选用 ' + LLM.model + '）';
+    }
+  }
+  let r = await llmCall(ping, 12000);
+  /* 接口常常在 400 里直接告诉你它支持哪些模型名——照它给的第一条改名重试一次 */
+  if (!r.text && /supported .*model names are/i.test(r.err || '')) {
+    const m = r.err.match(/model names are\s+([A-Za-z0-9._\-]+)/i);
+    if (m && m[1] && m[1] !== LLM.model) {
+      const old = LLM.model; LLM.model = m[1]; if ($('llmModel')) $('llmModel').value = m[1];
+      const r2 = await llmCall(ping, 12000);
+      if (r2.text) { r = r2; note = '（接口只支持 ' + m[1] + '，已从 ' + (old || '空') + ' 改用它后连通）'; }
+      else r = r2;
+    }
+  }
+  state.lastTest = r.text ? { ok: true, msg: '模型返回：' + r.text.slice(0, 20) } : { ok: false, msg: r.err };
+  if (out) { out.textContent = (r.text ? '✓ 连通 · ' + state.lastTest.msg : '✗ ' + r.err) + (note ? ' ' + note : ''); out.className = 'test-result ' + (r.text ? 'ok' : 'bad'); }
+  refreshEngineLine();
+  return r;
+}
+
 async function llmReply(userText){
   if (!LLM.key) return null;
   const r = SCRIPT.rounds[state.round];
-  const ground = retrieveGrounding(userText);
+  const ground = retrieveGrounding(userText, {
+    strain: SCRIPT.meta.strain,
+    elements: [...(r.watch||[]).map(w=>w.element), ...SCRIPT.meta.elements_used]
+  });
   const sys = '你正在扮演反诈教育模拟中的"兼职刷单骗手"，与一名大学生在微信上聊天。'
     + '当前阶段：第'+r.round_id+'轮·'+r.stage+'（总5轮），本阶段目标：'+r.goal+'。硬性规则：'
     + '1)绝不承认自己是AI或演员，始终以真人兼职对接的口吻说话；'
@@ -138,65 +302,60 @@ async function llmReply(userText){
     + '3)回复拆成1-3条短消息，每条不超过25字，用换行分隔，口语化、像真人微信消息；'
     + '4)不提供任何真实收款方式，收款码一律用"(图)"指代；'
     + '5)对方质疑时按骗术逻辑辩解，不得人身威胁；'
-    + (ground? '6)语气与结构可参考以下真实公开案例的话术片段，但不要照抄原文：\n' + ground.map(c=>'- '+c.text).join('\n') : '');
-  try {
-    const ac = new AbortController(); const tid = setTimeout(()=>ac.abort(), 8000);
-    const res = await fetch(LLM.base.replace(/\/+$/,'') + '/chat/completions', {
-      method:'POST', signal:ac.signal,
-      headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer '+LLM.key },
-      body: JSON.stringify({ model: LLM.model, temperature: 0.95, max_tokens: 130,
-        messages: [ {role:'system', content: sys},
-          ...state.history.slice(-8).map(h=>({role:h.role, content:h.content})),
-          {role:'user', content:userText} ] })
-    });
-    clearTimeout(tid);
-    const j = await res.json();
-    const text = (j.choices?.[0]?.message?.content || '').trim();
-    return text || null;
-  } catch(e){ state.engineCount.fallback++; return null; }
+    + '6)对方说的话里有具体信息（金额、时间、亲友经历、某个质疑点）时，必须先接住这个信息再推进目标，不许答非所问；'
+    + (ground ? '7)语气与结构参考以下真实公开通报案例的话术片段（按本轮话术要素检索得到），不要照抄原文：\n'
+        + ground.map(c => '- 【' + c.src + '·' + c.el + '】' + c.text).join('\n') : '');
+  const out = await llmCall([
+    { role: 'system', content: sys },
+    ...state.history.slice(-10).map(h => ({ role: h.role, content: h.content })),
+    { role: 'user', content: userText }
+  ]);
+  if (out.text) return out.text;
+  state.engineCount.fail++; state.llmErr = out.err || '未知错误';
+  return null;
 }
 
 /* ---------- 主流程 ---------- */
-function advance(){
-  enqueue(async ()=>{
-    state.round++; state.inRound = 0;
-    if (state.round >= SCRIPT.rounds.length){ settle('对话自然结束'); return; }
-    await peerStream(pick('open'));
-  });
+/* 推进必须内联 await，不能 enqueue 到队尾：否则用户连发时，排在前面的发言任务
+ * 会在 round 自增之前执行，全部记到同一轮（暗记归错轮、末轮判定失灵）。 */
+async function advanceNow(){
+  state.round++; state.inRound = 0;
+  if (state.round >= SCRIPT.rounds.length){ settle('对话自然结束'); return; }
+  await peerStream(pick('open'));
 }
 function onSend(){
   const t = input.value.trim(); if(!t || state.done) return;
   input.value=''; syncSendBtn();
   meSay(t);
   state.lastUserAt = Date.now(); maybeTimeDiv();
-  const intent = intentOf(t);
-  const notes = watchSilent(t);
-  state.history.push({role:'user', content:t});
-  const r = SCRIPT.rounds[state.round];
-  const finalRound = state.round === SCRIPT.rounds.length - 1;
-  const peerPrompt = state.lastPeerText;
-  state.rows.push({ round:r.round_id, stage:r.stage, peer:peerPrompt, mine:t, intent,
-    verdict: {refuse:'S3 识破', doubt:'S2 起疑', smalltalk:'S1 游离', consent:'S0 参与', how:'S0 参与', price:'S0 参与', identity:'S0 参与'}[intent],
-    notes, ded: notes.reduce((s,n)=>s+n.d,0), defense:r.defense });
-  if (intent==='refuse' && state.seenRound===null) state.seenRound = r.round_id;
-  const engaged = intent==='consent' || HARD.E5(t) || HARD.E6(t);
-
+  /* 关键修正：意图判定、暗记归属、轮次推进全部放进串行队列里执行。
+   * 旧版在发送瞬间就读 state.round 定 finalRound 与本轮 watch，而 round 是在队列里才自增的——
+   * 用户连发两句时，第二句会被记到上一轮：暗记归错轮、末轮判定失灵（演练可能不结算）。 */
   enqueue(async ()=>{
+    const intent = intentOf(t);
+    const notes = watchSilent(t);
+    const r = SCRIPT.rounds[state.round];
+    const finalRound = state.round === SCRIPT.rounds.length - 1;
+    const peerPrompt = state.lastPeerText;
+    state.rows.push({ round:r.round_id, stage:r.stage, peer:peerPrompt, mine:t, intent,
+      verdict: {refuse:'S3 识破', doubt:'S2 起疑', smalltalk:'S1 游离', consent:'S0 参与', how:'S0 参与', price:'S0 参与', identity:'S0 参与'}[intent],
+      notes, ded: notes.reduce((s,n)=>s+n.d,0), defense:r.defense });
+    if (intent==='refuse' && state.seenRound===null) state.seenRound = r.round_id;
+    const engaged = intent==='consent' || HARD.E5(t) || HARD.E6(t);
     let text = await llmReply(t);
     const bucket = ({refuse:'refuse', doubt:'doubt', identity:'identity', price:'price', how:'how', consent:'consent', smalltalk:'smalltalk'})[intent];
     if (text) state.engineCount.llm++; else { text = pick(bucket); state.engineCount.local++; }
     await peerStream(text);
-    state.history.push({role:'assistant', content:text});
 
     if (finalRound){
       await wait(600);
       settle(engaged ? '对方完成收网诱导（剧本终点）' : (intent==='refuse' ? '你识破并拒绝了对方' : '对话结束'));
       return;
     }
-    if (intent==='refuse' || engaged){ state.inRound=0; advance(); return; }
+    if (intent==='refuse' || engaged){ state.inRound=0; await advanceNow(); return; }
     state.inRound++;
     if (state.inRound >= 3){                              // 停滞太久：骗手主动推进到下一阶段
-      state.inRound = 0; advance();
+      state.inRound = 0; await advanceNow();
     }
   });
 }
@@ -204,6 +363,7 @@ function meSay(text){ row('me', text); }
 
 /* ---------- 结算报告 ---------- */
 function settle(reason){
+  state.lastReason = reason;
   if (state.done) return; state.done = true; hideTyping();
   $('chatView').classList.remove('on');
   const R = $('report'); R.classList.add('on');
@@ -212,8 +372,9 @@ function settle(reason){
   const verdict = score>=80 ? '免疫力良好<br>继续保持' : score>=50 ? '存在明显失守点<br>建议再练一次' : '高易感<br>请务必看完逐轮复盘';
   const dedList = Object.entries(state.dedByElem).sort((a,b)=>b[1]-a[1]);
   const tops = dedList.slice(0,3).map(([e,d])=>'<span class="tag-i">'+SCRIPT.element_codes[e].name+'（−'+d+'）</span>').join('');
+  const rawDed = dedList.reduce((a,[,d])=>a+d,0);
   const formula = dedList.length
-    ? '100 − ' + dedList.map(([e,d])=>'<span class="neg">'+SCRIPT.element_codes[e].name+' '+d+'</span>').join(' − ') + ' = <b>'+score+'</b>'
+    ? '100 − ' + dedList.map(([e,d])=>'<span class="neg">'+SCRIPT.element_codes[e].name+' '+d+'</span>').join(' − ') + ' = <b>'+score+'</b>' + (100-rawDed < 0 ? ' <span class="disc">（扣分合计超 100，按下限 0 计）</span>' : '')
     : '全程未触发风险暗记，基础分 100 保持';
   const seen = state.seenRound ? '首次识破：第 '+state.seenRound+' 轮' : '全程未识破对方话术';
   const secs = Math.max(1, Math.round((Date.now()-state.t0)/1000));
@@ -224,14 +385,14 @@ function settle(reason){
     '<div class="rp-head">'
     + '<div class="rp-brand"><svg width="18" height="18" viewBox="0 0 72 72" fill="none"><rect x="4" y="4" width="64" height="64" rx="14" fill="#4A6CF7"/><path d="M36 52c0-12 4-20 14-26" stroke="#FFF" stroke-width="5" stroke-linecap="round"/><path d="M36 52c0-10-3-17-12-22" stroke="#BBD0FF" stroke-width="5" stroke-linecap="round"/><path d="M50 26c4-6 10-8 16-7-1 6-5 11-12 12" fill="#BBD0FF"/></svg>话苗 HUAMIAO</div>'
     + '<div class="rp-title">防骗免疫力报告</div>'
-    + '<div class="rp-meta">剧本 '+SCRIPT.meta.script_id+' · '+SCRIPT.meta.strain+' ｜ '+seen+' · '+reason+'<br>用时 '+dur+' ｜ '+now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0')+' '+fmtTime(now)+' · 演示版</div></div>'
+    + '<div class="rp-meta">剧本 '+SCRIPT.meta.script_id+' · '+SCRIPT.meta.strain+' ｜ '+seen+' · '+reason+'<br>用时 '+dur+' ｜ '+now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-'+String(now.getDate()).padStart(2,'0')+' '+fmtTime(now) +' · '+(state.replayed ? '样本回放 · 录制于 '+state.replayed : '样机（机制验证）')+'</div></div>'
     + '<div class="card rp-score"><div class="score-row"><span class="score-n">'+score+'</span><span class="score-d">/100</span>'
     + '<span class="score-verdict '+vCls+'">'+verdict+'</span></div>'
     + '<div class="band"><i style="width:'+score+'%"></i><u style="left:50%"></u><u style="left:80%"></u></div>'
     + '<div class="band-l"><span>高易感</span><span>有失守</span><span>良好</span></div>'
     + '<div class="formula">'+formula+'</div></div>'
     + '<div class="card"><h2>你最易失守的话术</h2><div class="tags">'+(tops||'<span class="tag-i tag-ok">本局未失守</span>')+'</div>'
-    + '<p class="disc">演示版扣分为固定权重；正式版权重 = 该话术要素在 80–100 篇公开判决书中的出现频率 × 致损关键度（2人独立评级），权重表全文公开。</p></div>'
+    + '<p class="disc">样机阶段用固定演示权重（此处如实标注）；正式版权重 = 该话术要素在 80–100 篇公开判决书中的出现频率 × 致损关键度（2人独立评级），权重表全文公开。</p></div>'
     + '<div class="card"><h2>逐轮复盘 · 每一句都被记下来了</h2>'
     + (state.rows.length ? state.rows.map(x=>
         '<div class="rc"><div class="rc-h"><span class="rc-r">第'+x.round+'轮 · '+x.stage+'</span>'
@@ -248,23 +409,36 @@ function settle(reason){
     + '<li>所有"先垫付/先付费再返钱"的兼职与刷单都是诈骗，可拨打 96110 核实。</li>'
     + '<li>陌生"客服"提到屏幕共享、退款理赔，立即挂断并走官方 App 求证。</li></ul></div>'
     + '<div class="r-btns"><button id="againBtn">再练一次</button><button id="quitAll">返回须知页</button></div>'
-    + '<p class="engine-note">本局对方台词：大模型生成 '+state.engineCount.llm+' 条 · 本机引擎 '+state.engineCount.local+' 条'+(state.engineCount.fallback?'（另有 '+state.engineCount.fallback+' 次接口超时已自动降级）':'')+'<br>推进与打分为本地确定性逻辑 ｜ 全程对话已去标识，仅用于反诈教育研究</p>';
+    + '<button id="exportBtn" class="ghost-btn">⬇ 导出本局为回放样本（replay.js）</button>'
+    + '<p class="engine-note">本局对方台词来源：大模型生成 '+state.engineCount.llm+' 条 · 本机规则引擎 '+state.engineCount.local+' 条'
+    + (state.engineCount.fail ? '<br><span class="warn">另有 '+state.engineCount.fail+' 次大模型调用未成功，已自动改用本机引擎（最近原因：'+esc(state.llmErr)+'）——降级如实计数，不伪装为智能生成</span>' : '')
+    + (state.replayed ? '<br><b>本页为录制样本的回放</b>（引擎 '+(REPLAY_DATA && REPLAY_DATA.llmModel ? REPLAY_DATA.llmModel : '—')+'，录制于 '+state.replayed+'），非本设备实时生成' : '')
+    + '<br>推进 · 暗记 · 打分 · 结论 = 本地确定性代码 ｜ 全程对话去标识，仅用于反诈教育研究</p>'
+    + '<div class="scope">关于这个样机 · <b>'+SCRIPT.meta.script_id+'</b><br>'
+    + '本页验证的是<b>机制</b>：沉浸式暴露演练 + 静默行为暗记 + 可解释评分，不是最终产品的完成度。'
+    + '当前内置 1 个菌株（'+SCRIPT.meta.strain+'·5 轮 '+SCRIPT.rounds.reduce((s,r)=>s+Object.values(r.lines).reduce((a,b)=>a+b.length,0),0)+' 条台词），接地语料 33 条（=附件1）；'
+    + '扣分为样机固定演示权重。剧本库 v1（≥40 条·6 大类）、判决书频率加权权重表、对照实验与群体热力图见申报表技术路线与里程碑。</div>';
   $('againBtn').onclick = ()=>location.reload();
+  $('exportBtn').onclick = exportReplay;
   $('quitAll').onclick = ()=>{ R.classList.remove('on'); R.innerHTML=''; $('consent').classList.add('on'); resetAll(); };
   R.scrollTop = 0;
 }
 function esc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
 function resetAll(){
   Object.assign(state,{round:0,inRound:0,score:100,seenRound:null,rows:[],dedByElem:{},used:{},history:[],
-    lastPeerText:'',lastUserAt:0,lastTimeAt:0,t0:0,engineCount:{llm:0,local:0,fallback:0},done:false});
+    lastPeerText:'',lastUserAt:0,lastTimeAt:0,t0:0,engineCount:{llm:0,local:0,fail:0},transcript:[],replayed:null,lastReason:'',done:false});
   chat.innerHTML='';
 }
 
 /* ---------- 视图切换与事件 ---------- */
 function refreshEngineLine(){
   const on = !!LLM.key;
-  $('engineDot').className = 'dot' + (on?' on':'');
-  $('engineText').textContent = on ? ('智能引擎：大模型已接入（'+ (LLM.model||'custom') +'）·剧本约束+语料接地') : '智能引擎：本机剧本引擎（可接入大模型增强）';
+  const t = state.lastTest;
+  $('engineDot').className = 'dot' + (on && t && t.ok ? ' on' : '');
+  $('engineText').textContent = on
+    ? (t && t.ok ? '生成引擎：大模型已连通 · ' + (LLM.model||'custom')
+       : t ? '生成引擎：Key 已填但未连通（原因见接入面板）' : '生成引擎：Key 已填待检测 · 未连通时自动改用本机引擎')
+    : '生成引擎：本机规则引擎（剧本约束）';
 }
 $('startBtn').onclick = ()=>{
   $('consent').classList.remove('on'); $('chatView').classList.add('on');
@@ -282,17 +456,30 @@ $('menuBtn').onclick = ()=> $('menu').classList.add('on');
 $('menuCancel').onclick = ()=> $('menu').classList.remove('on');
 $('menu').onclick = e => { if(e.target.id==='menu') $('menu').classList.remove('on'); };
 $('endEarly').onclick = ()=>{ $('menu').classList.remove('on'); settle('你主动结束并退出'); };
-$('aboutItem').onclick = ()=>{ $('menu').classList.remove('on'); enqueue(async()=>{ await peerBubble('（演示提示）本对话为「话苗」AI 骗术对抗演练，对方为按剧本行事的语言模型；结束后可查看防骗免疫力报告。'); }); };
+$('aboutItem').onclick = ()=>{ $('menu').classList.remove('on'); enqueue(async()=>{ await peerBubble('（关于话苗）这是「话苗」AI 骗术对抗演练样机：对方台词由剧本引擎即兴生成（本机规则引擎，或已接入的大模型），推进与打分是本地确定性代码；结束后可查看防骗免疫力报告。'); }); };
 $('backBtn').onclick = ()=>{ if(!state.done) $('exitDlg').classList.add('on'); };
 $('exitStay').onclick = ()=>{ $('exitDlg').classList.remove('on'); input.focus({preventScroll:true}); };
 $('exitEnd').onclick = ()=>{ $('exitDlg').classList.remove('on'); settle('你主动结束并退出'); };
-$('llmCfgBtn').onclick = ()=>{ $('llmBase').value=LLM.base; $('llmModel').value=LLM.model; $('llmKey').value=LLM.key; $('llmSheet').classList.add('on'); };
-$('llmSave').onclick = ()=>{
-  LLM.base=$('llmBase').value.trim(); LLM.model=$('llmModel').value.trim(); LLM.key=$('llmKey').value.trim();
-  if(LLM.key && !LLM.base) LLM.base='https://api.deepseek.com';
-  if(!LLM.key){ LLM.base=''; LLM.model=''; }
+$('llmCfgBtn').onclick = ()=>{ $('llmBase').value=LLM.base; $('llmModel').value=LLM.model; $('llmKey').value=LLM.key; $('llmSheet').classList.add('on'); keyHint(); };
+$('llmSave').onclick = async ()=>{
+  syncLlmFromForm(false);
+  /* 模型名不再写死猜测（厂商改名后猜错就是 400，然后静默降级成罐头台词）；
+   * 留空时由 testConnection 去查 /models 选用。 */
+  if(!LLM.key){ LLM.base=''; LLM.model=''; state.lastTest=null; }
   localStorage.setItem('hm_llm', JSON.stringify(LLM));
-  $('llmSheet').classList.remove('on'); refreshEngineLine();
+  refreshEngineLine();
+  if (LLM.key) await testConnection(); else $('llmSheet').classList.remove('on');
+};
+$('llmTest').onclick = testConnection;
+$('llmKey').addEventListener('input', keyHint);
+/* 拉取该 Key 实际可用的模型名，填进下拉候选，避免手打错 */
+$('llmModels').onclick = async ()=>{
+  syncLlmFromForm(false);
+  const box = $('llmModelsHint'); if (box) box.textContent = '正在拉取…';
+  const list = await fetchModels();
+  if (!list || !list.length) { if (box) box.textContent = '该接口不支持 /models 列表，请手填模型名'; return; }
+  const dl = $('modelOptions'); if (dl) dl.innerHTML = list.map(id => '<option value="' + id + '"></option>').join('');
+  if (box) box.textContent = '可用 ' + list.length + ' 个：' + list.slice(0, 6).join(' · ') + (list.length > 6 ? ' …' : '');
 };
 $('llmClear').onclick = ()=>{ localStorage.removeItem('hm_llm'); LLM.base=LLM.model=LLM.key=''; $('llmSheet').classList.remove('on'); refreshEngineLine(); };
 $('llmSheet').onclick = e => { if(e.target.id==='llmSheet') $('llmSheet').classList.remove('on'); };
@@ -323,7 +510,7 @@ $('plusBtn').onclick = ()=> $('plus').classList.add('on');
 $('plus').onclick = e => { if(e.target.id==='plus') $('plus').classList.remove('on'); };
 document.querySelectorAll('#plus .pi').forEach(b => {
   b.addEventListener('click', ()=>{
-    if (b.dataset.k !== '转账'){ toast('演示版未开通「'+b.dataset.k+'」，仅「转账」可体验'); return; }
+    if (b.dataset.k !== '转账'){ toast('样机版只内置「转账」一项交互，其余入口见申报书技术方案'); return; }
     $('plus').classList.remove('on');
     $('tName').textContent = PEER;
     $('tAmount').value=''; $('tNote').value=''; $('tGo').disabled = true;
@@ -358,6 +545,54 @@ function doTransfer(amount){
   enqueue(async ()=>{
     await peerStream(pick('consent'));
     if (state.round === SCRIPT.rounds.length - 1) settle('对方完成收网诱导（模拟转账完成）');
-    else { state.inRound = 0; advance(); }
+    else { state.inRound = 0; await advanceNow(); }
   });
+}
+
+/* ---------- 回放样本：在已接入大模型的设备上导出，任何访客打开线上版即可播放 ----------
+ * 动机：前端不内置密钥（红线），所以访客打开线上版只能走本机规则引擎。
+ * 用一段真实对局的录制样本补足"评委点开就能看到智能"，且页面上如实标注是回放，不破红线。 */
+function exportReplay(){
+  const D = { kind:'hm-replay', v:1, recorded_at: new Date().toISOString().slice(0,16).replace('T',' '),
+    script_id: SCRIPT.meta.script_id, strain: SCRIPT.meta.strain,
+    meta: { contact_name: SCRIPT.meta.contact_name },
+    transcript: state.transcript,
+    rows: state.rows.map(x => ({ round:x.round, stage:x.stage, peer:x.peer, mine:x.mine, intent:x.intent, verdict:x.verdict, notes:x.notes, ded:x.ded })),
+    score: state.score, ded: state.dedByElem, seenRound: state.seenRound, reason: state.lastReason,
+    engine: state.engineCount, dur: Math.max(1, Math.round((Date.now()-state.t0)/1000)),
+    llmModel: LLM.model || '', corpus: (typeof CORPUS !== 'undefined' ? CORPUS.length : 0) };
+  const txt = '/* 话苗 · 真实对局回放样本 —— 由样机「导出本局」生成，请勿手改（改了就不可信了） */' + '\n'
+    + 'const REPLAY_DATA = ' + JSON.stringify(D, null, 1) + ';\n';
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([txt], { type:'text/javascript' }));
+  a.download = 'replay.js'; a.click();
+  toast('已导出 replay.js —— 放回本目录并重新部署，线上即可播放');
+}
+
+async function playReplay(){
+  const D = (typeof REPLAY_DATA === 'undefined' ? null : REPLAY_DATA);
+  if (!D || !D.transcript || !D.transcript.length) { toast('尚未放入 replay.js'); return; }
+  $('consent').classList.remove('on'); $('chatView').classList.add('on');
+  $('contactName').textContent = (D.meta && D.meta.contact_name ? D.meta.contact_name.split('｜')[0] : PEER);
+  chat.innerHTML = ''; state.t0 = Date.now(); timeDiv();
+  for (const m of D.transcript) {
+    if (m.s === 'me') { await wait(650); row('me', m.t); state.lastUserAt = Date.now(); continue; }
+    if (m.img) { await peerImage(m.img, ''); continue; }
+    await peerBubble(m.t);
+  }
+  await wait(900);
+  /* 报告直接采用录制时的结算结果，不在本机重算，避免"回放出来的分数"与当时不一致 */
+  state.score = D.score; state.dedByElem = D.ded || {}; state.seenRound = D.seenRound;
+  state.rows = (D.rows || []).map(x => Object.assign({}, x,
+    { defense: (SCRIPT.rounds[x.round-1] || {}).defense || { break:'—', correct:'—' } }));
+  state.engineCount = D.engine || state.engineCount;
+  state.replayed = D.recorded_at || '样本';
+  state.t0 = Date.now() - (D.dur || 0) * 1000;
+  settle((D.reason || '对局结束') + '（样本回放）');
+}
+
+/* 有样本才露出入口，没有就完全不出现（不放空壳按钮） */
+if (typeof REPLAY_DATA !== 'undefined' && REPLAY_DATA && REPLAY_DATA.transcript && REPLAY_DATA.transcript.length) {
+  $('replayBtn').hidden = false;
+  $('replayBtn').onclick = playReplay;
 }
