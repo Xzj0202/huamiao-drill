@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#EDEDED">
+<title>微信对话 · 话苗演练</title>
+<style>
+  :root {
+    --wx-bg:#EDEDED; --wx-hair:#DADADA; --wx-green:#95EC69; --wx-green-deep:#07C160;
+    --wx-text:#191919; --wx-time:#96979B; --wx-field:#F7F7F7; --wx-link:#576B95;
+    --hm:#4A6CF7; --hm-deep:#3A55D9; --danger:#D8404A; --ok:#1D9E74; --warn:#C77E1C;
+    --ink:#1A1D26; --ink-2:#4A5063; --ink-3:#8A90A3; --paper:#F7F8FA; --line:#E6E8F0;
+    --serif:"Songti SC","STSong","SimSun","Noto Serif SC",serif;
+    --vvh:100dvh;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+  html,body { height:100%; }
+  body { font-family:-apple-system,"PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif; background:#F2F2F2; color:var(--wx-text); }
+  ::selection { background:rgba(74,108,247,.18); }
+  .phone { max-width:430px; height:var(--vvh); margin:0 auto; background:var(--wx-bg); display:flex; flex-direction:column; position:relative; overflow:hidden; }
+  @media (min-width:520px){ .phone{ border-left:1px solid #E0E0E0; border-right:1px solid #E0E0E0; min-height:560px; } }
+
+  /* ---------- 微信顶栏（返回 ‹ + 居中标题 + ···） ---------- */
+  .wx-nav { background:var(--wx-bg); border-bottom:1px solid var(--wx-hair); display:flex; align-items:center; height:calc(44px + env(safe-area-inset-top)); padding-top:env(safe-area-inset-top); flex:none; }
+  .wx-nav button { background:none; border:none; width:46px; height:44px; display:flex; align-items:center; justify-content:center; color:var(--wx-text); cursor:pointer; }
+  .wx-nav .name { flex:1; text-align:center; font-size:17px; font-weight:500; color:var(--wx-text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:0 4px; }
+
+  .view { display:none; flex-direction:column; flex:1; min-height:0; }
+  .view.on { display:flex; }
+
+  /* ---------- 会话区 ---------- */
+  #chat { flex:1; overflow-y:auto; padding:10px 12px 14px; scrollbar-width:thin; overscroll-behavior:contain; }
+  #chat::-webkit-scrollbar { width:4px; } #chat::-webkit-scrollbar-thumb { background:#D0D0D0; border-radius:2px; }
+  .time-div { text-align:center; margin:14px 0 4px; font-size:12px; color:var(--wx-time); }
+  .row { display:flex; gap:8px; margin:16px 0; align-items:flex-start; animation:bubbleIn .16s cubic-bezier(.2,.8,.3,1); }
+  @keyframes bubbleIn { from { opacity:0; transform:translateY(6px); } }
+  .row.me { flex-direction:row-reverse; }
+  .ava { width:40px; height:40px; border-radius:5px; flex:none; }
+  .bubble { max-width:68%; padding:10px 13px; font-size:16.5px; line-height:1.45; border-radius:6px; position:relative; word-break:break-word; white-space:pre-wrap; color:var(--wx-text); }
+  .row:not(.me) .bubble { background:#FFF; }
+  .row.me .bubble { background:var(--wx-green); }
+  .row:not(.me) .bubble::before, .row.me .bubble::before { content:""; position:absolute; top:13px; border:6px solid transparent; }
+  .row:not(.me) .bubble::before { left:-6px; border-right-color:#FFF; border-left:none; }
+  .row.me .bubble::before { right:-6px; border-left-color:var(--wx-green); border-right:none; }
+
+  /* ---------- 输入栏 ---------- */
+  .wx-input { background:var(--wx-field); border-top:1px solid #E5E5E5; padding:7px 8px calc(7px + env(safe-area-inset-bottom)); display:flex; align-items:center; gap:7px; flex:none; }
+  .wx-input .field { flex:1; background:#FFF; border-radius:5px; display:flex; min-height:38px; }
+  .wx-input input { flex:1; border:none; outline:none; background:transparent; padding:8px 10px; font-size:16.5px; color:var(--wx-text); min-width:0; }
+  .wx-input input::placeholder { color:rgba(0,0,0,.3); }
+  .wx-input .icon-btn { background:none; border:none; padding:6px; color:var(--wx-text); cursor:pointer; display:flex; }
+  #sendBtn { display:none; background:var(--wx-green-deep); color:#FFF; border:none; border-radius:5px; height:38px; padding:0 15px; font-size:15.5px; cursor:pointer; flex:none; }
+  #sendBtn:active { background:#06AD56; }
+
+  /* ---------- 知情同意（编辑部式克制白） ---------- */
+  #consent { position:absolute; inset:0; z-index:30; background:#FFF; display:none; overflow-y:auto; }
+  #consent.on { display:block; }
+  .cs { max-width:430px; margin:0 auto; min-height:100%; display:flex; flex-direction:column; padding:calc(26px + env(safe-area-inset-top)) 30px calc(22px + env(safe-area-inset-bottom)); }
+  .cs-brand { display:flex; align-items:center; gap:8px; font-size:13px; letter-spacing:.14em; color:var(--ink-2); }
+  .cs-brand svg { flex:none; }
+  .cs-brand .cs-tag { margin-left:auto; letter-spacing:.06em; color:var(--ink-3); font-size:12px; }
+  .cs h1 { font-family:var(--serif); font-size:31px; line-height:1.42; font-weight:700; color:var(--ink); margin-top:9dvh; letter-spacing:.01em; }
+  .cs-sub { font-size:14px; line-height:1.9; color:var(--ink-2); margin-top:14px; }
+  .gates { list-style:none; margin-top:22px; border-top:1px solid var(--line); }
+  .gates li { display:flex; gap:14px; padding:13px 2px; border-bottom:1px solid var(--line); font-size:13.5px; line-height:1.7; color:var(--ink-2); }
+  .gates .g-n { font-size:12px; color:var(--hm); font-weight:600; letter-spacing:.04em; padding-top:2px; font-variant-numeric:tabular-nums; }
+  .gates b { color:var(--ink); font-weight:600; }
+  .engine-line { margin-top:16px; display:flex; align-items:center; gap:8px; font-size:13px; color:var(--ink-2); }
+  .engine-line .dot { width:7px; height:7px; border-radius:50%; background:#C4C9D6; flex:none; }
+  .engine-line .dot.on { background:var(--wx-green-deep); }
+  .engine-line span:nth-child(2) { flex:1; line-height:1.6; }
+  .engine-line button { flex:none; background:none; border:none; color:var(--hm); font-size:13px; cursor:pointer; padding:4px 2px; }
+  #startBtn { width:100%; margin-top:auto; background:var(--hm); color:#FFF; border:none; border-radius:8px; padding:16px; font-size:16.5px; font-weight:600; cursor:pointer; }
+  #startBtn:active { background:var(--hm-deep); }
+  #startBtn[disabled] { opacity:.5; cursor:default; }
+  .cs .fine { font-size:11.5px; color:var(--ink-3); margin-top:14px; text-align:center; line-height:1.8; }
+
+  /* LLM 设置弹层 */
+  #llmSheet { position:absolute; inset:0; z-index:40; background:rgba(0,0,0,.45); display:none; align-items:flex-end; }
+  #llmSheet.on { display:flex; }
+  .sheet-body { background:#FFF; width:100%; border-radius:14px 14px 0 0; padding:20px 20px calc(20px + env(safe-area-inset-bottom)); }
+  .sheet-body .hint { font-size:12px; color:var(--ink-3); margin-bottom:14px; line-height:1.7; }
+  .sheet-body label { font-size:12px; color:var(--ink-2); display:block; margin:10px 0 4px; }
+  .sheet-body input { width:100%; border:1px solid var(--line); border-radius:7px; padding:10px 12px; font-size:14px; outline:none; }
+  .sheet-body input:focus { border-color:var(--hm); }
+  .sheet-row { display:flex; gap:10px; margin-top:16px; }
+  .sheet-row button { flex:1; border-radius:8px; padding:12px; font-size:15px; cursor:pointer; border:none; }
+  #llmSave { background:var(--hm); color:#FFF; } #llmClear { background:#F0F1F6; color:var(--ink-2); }
+
+  /* 操作菜单（顶栏···） */
+  #menu { position:absolute; inset:0; z-index:35; background:rgba(0,0,0,.4); display:none; }
+  #menu.on { display:block; }
+  #menu .items { position:absolute; top:calc(52px + env(safe-area-inset-top)); right:10px; background:#FFF; border-radius:8px; overflow:hidden; box-shadow:0 8px 30px rgba(0,0,0,.18); }
+  #menu .items::before { content:""; position:absolute; top:-5px; right:16px; width:10px; height:10px; background:#FFF; transform:rotate(45deg); }
+  #menu .items button { display:block; width:190px; text-align:left; background:none; border:none; border-bottom:1px solid #F0F0F0; padding:13px 18px; font-size:15px; cursor:pointer; color:var(--wx-text); }
+  #menu .items button:last-child { border-bottom:none; }
+
+  /* 退出确认（微信式居中对话框） */
+  #exitDlg { position:absolute; inset:0; z-index:42; background:rgba(0,0,0,.5); display:none; align-items:center; justify-content:center; }
+  #exitDlg.on { display:flex; }
+  .dlg { width:288px; background:#FFF; border-radius:12px; overflow:hidden; text-align:center; }
+  .dlg h3 { font-size:17px; font-weight:600; color:var(--wx-text); padding:22px 20px 0; }
+  .dlg p { font-size:14px; color:var(--ink-2); line-height:1.7; padding:10px 22px 20px; }
+  .dlg .btns { border-top:1px solid #EDEDED; display:flex; }
+  .dlg .btns button { flex:1; background:none; border:none; padding:14px 0; font-size:16px; cursor:pointer; color:var(--ink-2); }
+  .dlg .btns button + button { border-left:1px solid #EDEDED; color:var(--wx-link); font-weight:600; }
+
+  /* ---------- ⊕ 面板 ---------- */
+  #plus { position:absolute; inset:0; z-index:36; background:rgba(0,0,0,.45); display:none; }
+  #plus.on { display:block; }
+  #plus .panel { position:absolute; left:0; right:0; bottom:0; background:var(--wx-field); border-top:1px solid #E5E5E5; padding:22px 8px calc(16px + env(safe-area-inset-bottom)); display:grid; grid-template-columns:repeat(4,1fr); row-gap:20px; animation:panelUp .14s ease-out; }
+  @keyframes panelUp { from { transform:translateY(24px); opacity:.4; } }
+  #plus .pi { display:flex; flex-direction:column; align-items:center; gap:6px; background:none; border:none; cursor:pointer; }
+  #plus .pi .ic { width:54px; height:54px; border-radius:10px; background:#FFF; display:flex; align-items:center; justify-content:center; color:#595F6B; }
+  #plus .pi:active .ic { background:#ECECEC; }
+  #plus .pi span { font-size:12px; color:#4B5568; }
+  #plus .pi.working .ic { color:#F5A623; }
+  .toast { position:absolute; left:50%; bottom:120px; transform:translateX(-50%); background:rgba(0,0,0,.75); color:#FFF; font-size:13px; padding:9px 16px; border-radius:6px; z-index:60; opacity:0; transition:opacity .25s; pointer-events:none; white-space:nowrap; }
+  .toast.on { opacity:1; }
+
+  /* ---------- 模拟转账（真实微信版式：灰底白卡 + 橙色按钮） ---------- */
+  #transfer { position:absolute; inset:0; z-index:50; background:var(--wx-bg); display:none; flex-direction:column; }
+  #transfer.on { display:flex; }
+  .t-nav { background:var(--wx-bg); border-bottom:1px solid var(--wx-hair); display:flex; align-items:center; height:calc(44px + env(safe-area-inset-top)); padding-top:env(safe-area-inset-top); flex:none; }
+  .t-nav button { background:none; border:none; width:46px; height:44px; display:flex; align-items:center; justify-content:center; cursor:pointer; color:var(--wx-text); }
+  .t-nav .name { flex:1; text-align:center; font-size:17px; font-weight:500; }
+  .t-nav .ph { width:46px; }
+  .t-body { flex:1; overflow-y:auto; padding:0; }
+  .t-card { background:#FFF; border-radius:12px; margin:14px 12px 0; padding:30px 22px 24px; }
+  .t-who { display:flex; flex-direction:column; align-items:center; gap:9px; }
+  .t-who .ava2 { width:48px; height:48px; border-radius:6px; }
+  .t-who .tt { font-size:15px; color:var(--wx-text); font-weight:500; }
+  .t-amt { display:flex; align-items:baseline; gap:6px; border-bottom:1px solid #E5E5E5; padding:18px 2px 12px; margin-top:26px; }
+  .t-amt i { font-style:normal; font-size:24px; color:var(--wx-text); font-weight:600; }
+  .t-amt input { flex:1; border:none; outline:none; font-size:38px; font-weight:700; color:var(--wx-text); background:transparent; min-width:0; }
+  .t-amt input::placeholder { color:#D4D4D4; font-weight:400; }
+  .t-note input { width:100%; border:none; outline:none; background:transparent; font-size:14px; color:var(--wx-text); padding:14px 2px 12px; border-bottom:1px solid #E5E5E5; }
+  .t-note input::placeholder { color:#C6C6C6; }
+  .t-go { display:block; width:100%; margin-top:34px; border:none; border-radius:6px; padding:14px; font-size:17px; font-weight:500; color:#FFF; background:#F5A623; cursor:pointer; }
+  .t-go:active { background:#E09612; }
+  .t-go:disabled { opacity:.4; }
+  .t-fine { font-size:11.5px; color:var(--ink-3); text-align:center; margin:16px 24px 24px; line-height:1.8; }
+  .tcard { background:#F5A623; border-radius:6px; min-width:170px; color:#FFF; padding:11px 14px; position:relative; }
+  .tcard::after { content:""; position:absolute; right:-6px; top:13px; border:6px solid transparent; border-left-color:#F5A623; border-right:none; }
+  .tcard .tc-amt { font-size:19px; font-weight:700; }
+  .tcard .tc-sub { font-size:11px; opacity:.85; margin-top:3px; }
+
+  /* ---------- 结算报告（编辑部式：纸白 + 衬线大数字 + 发丝线） ---------- */
+  #report { background:var(--paper); overflow-y:auto; padding:calc(22px + env(safe-area-inset-top)) 18px calc(26px + env(safe-area-inset-bottom)); }
+  .rp-head { padding:6px 2px 0; }
+  .rp-brand { display:flex; align-items:center; gap:7px; font-size:12px; letter-spacing:.14em; color:var(--ink-2); }
+  .rp-title { font-family:var(--serif); font-size:25px; font-weight:700; color:var(--ink); margin-top:16px; }
+  .rp-meta { font-size:12px; color:var(--ink-3); margin-top:8px; line-height:1.7; font-variant-numeric:tabular-nums; }
+  .card { background:#FFF; border:1px solid var(--line); border-radius:12px; padding:18px; margin-top:12px; }
+  .rp-score { padding:20px 18px 16px; }
+  .score-row { display:flex; align-items:baseline; gap:8px; }
+  .score-n { font-family:var(--serif); font-size:58px; line-height:1; font-weight:700; color:var(--ink); font-variant-numeric:tabular-nums; }
+  .score-d { font-size:14px; color:var(--ink-3); }
+  .score-verdict { margin-left:auto; font-size:13.5px; font-weight:600; text-align:right; max-width:150px; line-height:1.5; }
+  .v-good { color:var(--ok); } .v-mid { color:var(--warn); } .v-bad { color:var(--danger); }
+  .band { margin-top:18px; height:4px; background:#EBEDF3; border-radius:2px; position:relative; }
+  .band i { position:absolute; left:0; top:0; bottom:0; border-radius:2px; background:var(--hm); transition:width .6s cubic-bezier(.2,.8,.3,1); }
+  .band u { position:absolute; top:-4px; width:1px; height:12px; background:#C9CEDC; }
+  .band-l { display:flex; justify-content:space-between; font-size:10.5px; color:var(--ink-3); margin-top:7px; letter-spacing:.04em; }
+  .formula { font-size:12.5px; color:var(--ink-2); margin-top:14px; padding-top:12px; border-top:1px solid var(--line); line-height:1.8; font-variant-numeric:tabular-nums; }
+  .formula .neg { color:var(--danger); }
+  .card h2 { font-size:15px; font-weight:600; color:var(--ink); margin-bottom:12px; }
+  .tags { display:flex; flex-wrap:wrap; gap:8px; }
+  .tag-i { background:#FBEAEA; color:var(--danger); border-radius:6px; padding:5px 10px; font-size:13px; font-weight:600; }
+  .tag-ok { background:#E6F5EE; color:var(--ok); }
+  .disc { font-size:12px; color:var(--ink-3); line-height:1.75; margin-top:12px; }
+  /* 四段式复盘卡 */
+  .rc { border-top:1px solid var(--line); padding:14px 2px; }
+  .rc:first-of-type { border-top:none; padding-top:4px; }
+  .rc-h { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+  .rc-r { font-size:14px; font-weight:600; color:var(--ink); }
+  .chip { font-size:11px; border-radius:4px; padding:2.5px 7px; font-weight:600; letter-spacing:.03em; }
+  .chip.s0 { background:#FBEAEA; color:var(--danger); }
+  .chip.s1 { background:#EFF0F4; color:var(--ink-2); }
+  .chip.s2 { background:#FBF3E3; color:var(--warn); }
+  .chip.s3 { background:#E6F5EE; color:var(--ok); }
+  .rc .ded-n { margin-left:auto; font-size:13px; font-weight:700; color:var(--danger); font-variant-numeric:tabular-nums; }
+  .rc .ded-n.zero { color:var(--ink-3); font-weight:500; }
+  .rc-q, .rc-a, .rc-m, .rc-d { display:flex; gap:10px; margin-top:7px; }
+  .rc-q b, .rc-a b, .rc-m b, .rc-d b { flex:none; width:64px; font-size:12px; color:var(--ink-3); font-weight:400; padding-top:2px; letter-spacing:.06em; white-space:nowrap; }
+  .rc-q p, .rc-a p, .rc-m p, .rc-d p { font-size:13px; line-height:1.7; color:var(--ink-2); }
+  .rc-q p { color:var(--ink-3); }
+  .rc-a p { color:var(--ink); font-weight:500; }
+  .rc-m p.hit { color:var(--danger); font-weight:600; }
+  .rc-d { background:#F4F6FB; border-radius:8px; padding:10px 12px; margin-top:12px; }
+  .rc-d b { color:var(--hm); }
+  .rc-d > div { flex:1; min-width:0; }
+  .rc-d p { font-size:12.5px; }
+  .rc-d .cor { color:var(--ink-2); margin-top:4px; padding-top:6px; border-top:1px dashed #DDE2F0; }
+  .tips { list-style:none; counter-reset:t; }
+  .tips li { counter-increment:t; display:flex; gap:10px; font-size:13px; line-height:1.75; color:var(--ink-2); padding:10px 0; border-top:1px solid var(--line); }
+  .tips li:first-child { border-top:none; }
+  .tips li::before { content:counter(t,decimal-leading-zero); font-size:11px; color:var(--hm); font-weight:600; padding-top:3px; font-variant-numeric:tabular-nums; }
+  .r-btns { display:flex; gap:10px; margin-top:18px; }
+  .r-btns button { flex:1; border:none; border-radius:8px; padding:14px; font-size:15px; font-weight:600; cursor:pointer; }
+  #againBtn { background:var(--hm); color:#FFF; }
+  #quitAll { background:#FFF; color:var(--ink-2); border:1px solid var(--line) !important; }
+  .engine-note { font-size:11.5px; color:var(--ink-3); text-align:center; margin-top:14px; line-height:1.8; }
+</style>
+</head>
+<body>
+<div class="phone">
+
+  <!-- ① 知情同意 -->
+  <div id="consent" class="on">
+    <div class="cs">
+      <div class="cs-brand">
+        <svg width="22" height="22" viewBox="0 0 72 72" fill="none"><rect x="4" y="4" width="64" height="64" rx="14" fill="#4A6CF7"/><path d="M36 52c0-12 4-20 14-26" stroke="#FFF" stroke-width="5" stroke-linecap="round" fill="none"/><path d="M36 52c0-10-3-17-12-22" stroke="#BBD0FF" stroke-width="5" stroke-linecap="round" fill="none"/><path d="M50 26c4-6 10-8 16-7-1 6-5 11-12 12" fill="#BBD0FF"/></svg>
+        <span>话苗 HUAMIAO</span><span class="cs-tag">演练须知</span>
+      </div>
+      <h1>先被骗一次，<br>才不被骗第二次。</h1>
+      <p class="cs-sub">一次 3–5 分钟的微信对话演练。对方是一名按剧本行事的 AI「骗手」，台词改编自公开通报的真实案例（已脱敏）；你的每一句回应都会被静默记录。</p>
+      <ol class="gates">
+        <li><span class="g-n">01</span><div><b>对方是 AI，内容虚构。</b>收款码、转账金额均为模拟，不发生任何真实资金流动。</div></li>
+        <li><span class="g-n">02</span><div><b>全程可随时退出。</b>点左上角「‹」或右上角「···」即可结束并查看结算。</div></li>
+        <li><span class="g-n">03</span><div><b>演练中不作任何提示。</b>风险信号被静默记录，结束后一次性揭晓「防骗免疫力报告」。</div></li>
+        <li><span class="g-n">04</span><div><b>日志去标识。</b>不采集姓名、学号，数据仅用于反诈教育研究。</div></li>
+      </ol>
+      <div class="engine-line">
+        <span class="dot" id="engineDot"></span><span id="engineText">智能引擎：本机剧本引擎（可接入大模型增强）</span>
+        <button id="llmCfgBtn">接入</button>
+      </div>
+      <button id="startBtn">我已知情，进入演练</button>
+      <p class="fine">结束后强制附反诈要点 ｜ 本工具为教育性演练与测评，不构成真实受骗风险预测<br>广东财经大学「话苗」项目组 · 演示版</p>
+    </div>
+  </div>
+
+  <!-- ② 微信式演练会话 -->
+  <div id="chatView" class="view">
+    <header class="wx-nav">
+      <button id="backBtn" aria-label="返回">
+        <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4l-7 7 7 7"/></svg>
+      </button>
+      <span class="name" id="contactName">小逸</span>
+      <button id="menuBtn" aria-label="菜单">
+        <svg width="22" height="22" viewBox="0 0 22 22"><circle cx="4" cy="11" r="1.8" fill="currentColor"/><circle cx="11" cy="11" r="1.8" fill="currentColor"/><circle cx="18" cy="11" r="1.8" fill="currentColor"/></svg>
+      </button>
+    </header>
+    <div id="chat"></div>
+    <div class="wx-input">
+      <button class="icon-btn" aria-label="语音（演示版不可用）">
+        <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3"/></svg>
+      </button>
+      <div class="field"><input id="userInput" type="text" placeholder="" autocomplete="off" enterkeyhint="send"></div>
+      <button class="icon-btn" aria-label="表情">
+        <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><circle cx="9" cy="10" r="1" fill="currentColor" stroke="none"/><circle cx="15" cy="10" r="1" fill="currentColor" stroke="none"/><path d="M8.5 14.5c1 1.2 2.2 1.8 3.5 1.8s2.5-.6 3.5-1.8"/></svg>
+      </button>
+      <button class="icon-btn" id="plusBtn" aria-label="更多">
+        <svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>
+      </button>
+      <button id="sendBtn">发送</button>
+    </div>
+  </div>
+
+  <!-- 顶栏菜单 -->
+  <div id="menu">
+    <div class="items">
+      <button id="endEarly">结束演练并结算</button>
+      <button id="aboutItem">关于话苗（本次为演示）</button>
+      <button id="menuCancel">取消</button>
+    </div>
+  </div>
+
+  <!-- 退出确认 -->
+  <div id="exitDlg">
+    <div class="dlg">
+      <h3>结束这次演练？</h3>
+      <p>结束后将立即生成防骗免疫力报告；对话记录不会保存。</p>
+      <div class="btns"><button id="exitStay">继续演练</button><button id="exitEnd">结束并结算</button></div>
+    </div>
+  </div>
+
+  <!-- ③ 结算报告 -->
+  <div id="report" class="view"></div>
+
+  <!-- LLM 设置 -->
+  <div id="llmSheet">
+    <div class="sheet-body">
+      <h2 style="font-size:16px;margin-bottom:4px">接入大模型（可选）</h2>
+      <p class="hint">填入 OpenAI 兼容接口（DeepSeek / 智谱 GLM / 通义 Qwen 任一）后，"对方"的台词由大模型按剧本即兴生成，本地检索公开通报话术作语气接地。Key 仅保存在本机浏览器，不会上传。不接入则使用本机剧本引擎，功能完整。</p>
+      <label>接口地址 Base URL</label>
+      <input id="llmBase" placeholder="https://api.deepseek.com">
+      <label>模型名</label>
+      <input id="llmModel" placeholder="deepseek-chat">
+      <label>API Key</label>
+      <input id="llmKey" type="password" placeholder="sk-…">
+      <div class="sheet-row">
+        <button id="llmClear">清除并使用本机引擎</button>
+        <button id="llmSave">保存并启用</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ⊕ 功能面板 -->
+  <div id="plus">
+    <div class="panel">
+      <button class="pi" data-k="相册"><span class="ic"><svg width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="20" height="18" rx="3"/><circle cx="9" cy="10" r="2"/><path d="M3 19l6-6 5 5 4-4 5 5" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>相册</span></button>
+      <button class="pi" data-k="拍摄"><span class="ic"><svg width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="7" width="20" height="15" rx="3"/><path d="M9 7l2-3h4l2 3"/><circle cx="13" cy="14.5" r="4"/></svg></span><span>拍摄</span></button>
+      <button class="pi" data-k="视频通话"><span class="ic"><svg width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="6" width="14" height="14" rx="3"/><path d="M16.5 11l7-4v12l-7-4" stroke-linejoin="round"/></svg></span><span>视频通话</span></button>
+      <button class="pi" data-k="位置"><span class="ic"><svg width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M13 23s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12z" stroke-linejoin="round"/><circle cx="13" cy="10.5" r="2.6"/></svg></span><span>位置</span></button>
+      <button class="pi" data-k="红包"><span class="ic"><svg width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="3" width="18" height="20" rx="3"/><path d="M4 9c4 3 14 3 18 0M13 12v4" stroke-linecap="round"/></svg></span><span>红包</span></button>
+      <button class="pi working" id="transferEntry" data-k="转账"><span class="ic"><svg width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M6 6h14M17.5 2.5L21 6l-3.5 3.5M20 20H6M8.5 16.5L5 20l3.5 3.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span>转账</span></button>
+      <button class="pi" data-k="语音输入"><span class="ic"><svg width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="10" y="3" width="6" height="12" rx="3"/><path d="M6 12a7 7 0 0 0 14 0M13 19v4" stroke-linecap="round"/></svg></span><span>语音输入</span></button>
+      <button class="pi" data-k="收藏"><span class="ic"><svg width="26" height="26" viewBox="0 0 26 26" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M13 3l2.9 6 6.6.9-4.8 4.6 1.2 6.5L13 17.9 7.1 21l1.2-6.5L3.5 9.9 10.1 9z" stroke-linejoin="round"/></svg></span><span>收藏</span></button>
+    </div>
+  </div>
+
+  <!-- 模拟转账页 -->
+  <div id="transfer">
+    <div class="t-nav">
+      <button id="tBack" aria-label="返回"><svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 4l-7 7 7 7"/></svg></button>
+      <span class="name">转账</span><span class="ph"></span>
+    </div>
+    <div class="t-body">
+      <div class="t-card">
+        <div class="t-who">
+          <svg class="ava2" viewBox="0 0 48 48"><rect width="48" height="48" rx="6" fill="#5B7BD5"/><circle cx="24" cy="19" r="7.8" fill="#E8EEFF"/><path d="M7.6 42.6c2.8-9.2 8.8-13.6 16.4-13.6s13.6 4.4 16.4 13.6" fill="#E8EEFF"/></svg>
+          <div class="tt" id="tName">小逸</div>
+        </div>
+        <div class="t-amt"><i>¥</i><input id="tAmount" type="text" inputmode="decimal" placeholder="0.00"></div>
+        <div class="t-note"><input id="tNote" type="text" placeholder="添加转账说明"></div>
+        <button class="t-go" id="tGo" disabled>转账</button>
+      </div>
+      <p class="t-fine">本页面为反诈演练模拟界面，不发生任何真实资金流动<br>广东财经大学「话苗」项目组 · 演示版</p>
+    </div>
+  </div>
+</div>
+<script src="data.js"></script>
+<script src="corpus.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
